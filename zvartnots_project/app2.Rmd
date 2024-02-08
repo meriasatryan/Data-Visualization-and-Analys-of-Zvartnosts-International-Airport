@@ -1,0 +1,357 @@
+---
+title: "finalproject"
+author: "Anna Aghaloyan"
+date: "2023-12-05"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+The three plots provide a visual representation of weather conditions over five weeks in late 2023. The first graph tracks cloud cover, with a scale from 0 for clear skies to 1 for complete coverage, showing frequent changes. The second displays wind gusts, with peaks indicating strong wind events. The third shows wind speed, highlighting more consistent wind conditions with occasional increases. These plots illustrate variations in cloudiness, wind bursts, and general wind flow, important for weather forecasting and related activities. Together, they detail the changing atmospheric conditions observed during the period these plots offer valuable insights into weather dynamics, critical for sectors such as agriculture, aviation, and outdoor event planning. 
+
+```{r message=FALSE, warning=FALSE}
+
+#1 (3 in 1)
+library(shiny)
+library(shinythemes)
+library(readr)
+library(plotly)
+
+ui <- fluidPage(
+  titlePanel("Weather Data"),
+  mainPanel(
+    tabsetPanel(
+      tabPanel("Cloud Cover", plotlyOutput("cloud_cover_plot")),
+      tabPanel("Wind Gusts", plotlyOutput("wind_gusts_plot")),
+      tabPanel("Wind Speed", plotlyOutput("wind_speed_plot"))
+    )
+  )
+)
+
+server <- function(input, output) {
+  weather_data <- read_csv('weather_data.csv')
+  weather_data$DateTime <- as.POSIXct(weather_data$DateTime, format = "%d.%m.%Y %H:%M")
+  
+  output$cloud_cover_plot <- renderPlotly({
+    plot_ly(data = weather_data, x = ~DateTime, y = ~`Cloud cover`, type = 'scatter', mode = 'lines',
+            line = list(color = 'black')) %>%
+      layout(title = 'Cloud Cover Over Time',
+             xaxis = list(title = 'DateTime'),
+             yaxis = list(title = 'Cloud Cover'))
+  })
+  
+  output$wind_gusts_plot <- renderPlotly({
+    plot_ly(data = weather_data, x = ~DateTime, y = ~`Wind gusts`, type = 'scatter', mode = 'lines',
+            line = list(color = 'black')) %>%
+      layout(title = 'Wind Gusts Over Time',
+             xaxis = list(title = 'DateTime'),
+             yaxis = list(title = 'Wind Gusts (km/h)'))
+  })
+  
+  output$wind_speed_plot <- renderPlotly({
+    plot_ly(data = weather_data, x = ~DateTime, y = ~`Wind Speed (km/h)`, type = 'scatter', mode = 'lines',
+            line = list(color = 'black')) %>%
+      layout(title = 'Wind Speed Over Time',
+             xaxis = list(title = 'DateTime'),
+             yaxis = list(title = 'Wind Speed (km/h)'))
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+
+```
+
+
+
+This wind rose represents the distribution of wind speed and direction.
+Each segment's length indicates how often the wind blows from a particular direction, with longer segments representing a more frequent occurrence. The colors likely represent different wind speed ranges, with darker shades such as red perhaps denoting higher speeds and lighter shades like orange and gray indicating lower speeds. Directions are marked around the circle (N for North, E for East, S for South, W for West, and their intermediates). A slider at the top suggests that the user can select a range of wind speeds to display, enhancing the plot's interactivity.
+
+```{R message=FALSE, warning=FALSE}
+#2
+library(shiny)
+library(plotly)
+library(dplyr)
+ui <- fluidPage(
+    titlePanel("Wind Rose Plot"),
+    sliderInput("windSpeedRange", "Choose Wind Speed Range:",
+                min = min(read.csv("weather_data.csv")$Wind.gusts, na.rm = TRUE),
+                max = max(read.csv("weather_data.csv")$Wind.gusts, na.rm = TRUE),
+                value = c(min(read.csv("weather_data.csv")$Wind.gusts, na.rm = TRUE), 
+                          max(read.csv("weather_data.csv")$Wind.gusts, na.rm = TRUE))),
+    plotlyOutput("windRosePlot")
+)
+
+server <- function(input, output) {
+    filteredData <- reactive({
+        weather_data <- read.csv("weather_data.csv")
+        weather_data <- weather_data[weather_data$Wind.gusts >= input$windSpeedRange[1] & 
+                                     weather_data$Wind.gusts <= input$windSpeedRange[2], ]
+        weather_data
+    })
+
+    output$windRosePlot <- renderPlotly({
+        wind_summary <- filteredData() %>%
+            group_by(`Wind.Direction`) %>%
+            summarize(Average_Gusts = mean(Wind.gusts, na.rm = TRUE))
+
+        
+        plot_ly(wind_summary, type = 'barpolar', r = ~Average_Gusts, theta = ~`Wind.Direction`,
+                marker = list(color = ~Average_Gusts)) %>%
+            layout(polar = list(radialaxis = list(visible = TRUE)))
+    })
+}
+
+shinyApp(ui = ui, server = server)
+
+```
+
+
+
+Map of flights includes a world map that highlights the on-time performance of flights by country. Different colors represent the percentage of on-time flights. The greener the area, the higher the on-time performance, while areas that tend towards red indicate lower performance. This map is a vital tool for the aviation industry, serving airlines, regulators, agencies, airports, logistics, investors, researchers, and government planners. It offers global flight punctuality insights for smarter operational, strategic, and investment decisions.
+
+```{r message=FALSE}
+##3mapping
+library(shiny)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+data <- read_csv("merged_data.csv")
+on_time_data <- data %>%
+  mutate(on_time = ifelse(Status == "Ontime", 1, 0)) %>%
+  group_by(country) %>%
+  summarise(on_time_percentage = mean(on_time, na.rm = TRUE) * 100) %>%
+  ungroup()
+ui <- fluidPage(
+  titlePanel("Interactive On-Time Performance Map"),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("percentageRange",
+                  "Percentage of On-time Flights:",
+                  min = min(on_time_data$on_time_percentage, na.rm = TRUE),
+                  max = max(on_time_data$on_time_percentage, na.rm = TRUE),
+                  value = c(min(on_time_data$on_time_percentage, na.rm = TRUE), 
+                            max(on_time_data$on_time_percentage, na.rm = TRUE))
+      )
+    ),
+    mainPanel(plotOutput("onTimeMap"))
+  )
+)
+
+server <- function(input, output) {
+  filteredData <- reactive({
+    on_time_data %>%
+      filter(on_time_percentage >= input$percentageRange[1],
+             on_time_percentage <= input$percentageRange[2])
+  })
+  output$onTimeMap <- renderPlot({
+    world <- ne_countries(scale = "medium", returnclass = "sf")
+    world_data <- world %>%
+      left_join(filteredData(), by = c("name" = "country"))
+    ggplot(data = world_data) +
+      geom_sf(aes(fill = on_time_percentage)) +
+      scale_fill_gradient(low = "red", high = "green", na.value = "transparent", 
+                          name = "On-time %") +
+      theme_minimal() +
+      labs(title = "On-time Flight Performance by Country")
+  })
+}
+shinyApp(ui = ui, server = server)
+
+
+```
+
+The bar chart provides a visual representation of the proportion of delayed flights for a selectable airline across different days of the week. From the plot we can see which days have  the highest proportion of delays, significantly more than other days. This visualization enables airlines, regulatory agencies, and passengers to identify patterns in flight delays, thus facilitating operational planning and travel scheduling to minimize the impact of such delays.
+
+```{R message=FALSE, warning=FALSE}
+
+#4 days of week
+
+library(shiny)
+library(plotly)
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+data <- read.csv("merged_data.csv")
+
+ui <- fluidPage(
+  titlePanel("Flight Delays Analysis by Day of the Week"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("airlineInput", "Select Airline", choices = unique(data$Airline), selected = "All")
+    ),
+    mainPanel(
+      plotlyOutput("delayPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  data$IsDelayed <- data$Status == 'Delay'
+  ordered_days <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+  filteredData <- reactive({
+    temp_data <- data
+    if(input$airlineInput != "All") {
+      temp_data <- temp_data %>% filter(Airline == input$airlineInput)
+    }
+    temp_data %>% 
+      mutate(DayOfWeek = factor(DayOfWeek, levels = ordered_days)) 
+  })
+
+  output$delayPlot <- renderPlotly({
+    delay_by_day <- filteredData()
+    if(nrow(delay_by_day) > 0) {
+      delay_by_day <- delay_by_day %>%
+        group_by(DayOfWeek) %>%
+        summarise(DelayedFlights = sum(IsDelayed, na.rm = TRUE),
+                  TotalFlights = n(),
+                  DelayProportion = DelayedFlights / TotalFlights * 100) %>%
+        ungroup()
+      p <- ggplot(delay_by_day, aes(x = DayOfWeek, y = DelayProportion, group = 1)) +
+        geom_bar(stat = "identity") +
+        labs(x = "Day of the Week", y = "Proportion of Delayed Flights (%)",
+             title = "Proportion of Delayed Flights by Day of the Week") +
+        theme_minimal()
+      
+      ggplotly(p)
+    } else {
+      ggplotly(ggplot())
+    }
+  })
+}
+
+shinyApp(ui, server)
+
+
+```
+
+```{r}
+#same for armenian airlines, not sure if needed
+library(shiny)
+library(plotly)
+library(ggplot2)
+library(sf)
+library(dplyr)
+library(readr)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+data <- read.csv("merged_data.csv") %>% filter(Armenian == 1)
+
+ui <- fluidPage(
+  titlePanel("Flight Delays Analysis for Armenian Airlines by Day of the Week"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("airlineInput", "Select Airline", 
+                  choices = c("All", unique(data$Airline)), 
+                  selected = "All")
+    ),
+    mainPanel(
+      plotlyOutput("delayPlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  filteredData <- reactive({
+    temp_data <- data
+    if(input$airlineInput != "All") {
+      temp_data <- temp_data %>% filter(Airline == input$airlineInput)
+    }
+    temp_data
+  })
+  
+  output$delayPlot <- renderPlotly({
+  
+    delay_data <- filteredData()
+    
+    if(nrow(delay_data) > 0) {
+      delay_data <- delay_data %>%
+        group_by(DayOfWeek) %>%
+        summarise(DelayedFlights = sum(Status == 'Delay', na.rm = TRUE),
+                  TotalFlights = n(),
+                  DelayProportion = DelayedFlights / TotalFlights * 100) %>%
+        ungroup()
+      p <- ggplot(delay_data, aes(x = DayOfWeek, y = DelayProportion, group = 1)) +
+        geom_bar(stat = "identity") +
+        labs(x = "Day of the Week", y = "Proportion of Delayed Flights (%)",
+             title = "Proportion of Delayed Flights by Day of the Week for Armenian Airlines") +
+        theme_minimal()
+      
+      ggplotly(p)
+    } else {
+      ggplotly(ggplot())
+    }
+  })
+}
+
+shinyApp(ui, server)
+
+```
+
+This plot visualizes the proportion of on-time and delayed flights for selected airlines. The chart is a stacked bar graph where each bar represents an airline, segmented into two colors: dark gray for the proportion of delayed flights and light gray for the proportion of on-time flights. The selected airlines, such as Aegean Airlines, Aeroflot, Air Arabia, Air Cairo, and others, are indicated with a checkbox,after pressing "Update Chart" one will get the comparison of airlines that they want.This benefits airlines, passengers, airport operations, travel agencies and researchers by providing insights into flight punctuality and operational efficiency in the aviation industry.
+
+```{R}
+#5
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+data <- read.csv("merged_data.csv", stringsAsFactors = FALSE)
+data$Status <- ifelse(data$Status %in% c('Onetime', 'Ontime'), 'On-time', 'Delayed')
+ui <- fluidPage(
+  titlePanel("Airline On-time Performance Comparison"),
+  sidebarLayout(
+    sidebarPanel(
+      checkboxGroupInput("airlineInput", "Select Airlines",
+                         choices = sort(unique(data$Airline)),
+                         selected = sort(unique(data$Airline))[1:5]),
+      actionButton("update", "Update Chart")
+    ),
+    mainPanel(
+      plotlyOutput("performancePlot")
+    )
+  )
+)
+
+server <- function(input, output) {
+  
+  observeEvent(input$update, {
+    filteredData <- data %>%
+      filter(Airline %in% input$airlineInput) %>%
+      group_by(Airline, Status) %>%
+      summarise(Count = n(), .groups = 'drop') %>%
+      ungroup() %>%
+      mutate(Airline = factor(Airline, levels = unique(data$Airline)))
+    
+    output$performancePlot <- renderPlotly({
+      p <- ggplot(filteredData, aes(x = Airline, y = Count, fill = Status)) +
+        geom_bar(stat = "identity", position = "fill") +
+        scale_y_continuous(labels = scales::percent_format()) +
+        scale_fill_manual(values = c('Delayed' = 'black', 'On-time' = 'grey')) +
+        labs(x = "Airline", y = "Proportion", fill = "Status") +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 65, vjust = 0.6))
+      
+      ggplotly(p)
+    })
+  })
+}
+
+shinyApp(ui, server)
+
+
+```
+
+
+
+
